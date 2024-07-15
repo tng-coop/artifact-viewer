@@ -7,6 +7,7 @@ import requests
 import os
 import zipfile
 import tkinter
+from tqdm import tqdm
 
 def print_help():
     """Prints usage instructions and help information."""
@@ -35,7 +36,6 @@ def get_clipboard_content():
     except Exception as e:
         raise RuntimeError(f"Failed to get content from clipboard: {e}")
 
-
     # Regular expression to validate GitHub Actions run URL
     github_run_url_pattern = r'^https://github\.com/[\w-]+/[\w-]+/actions/runs/\d+'
 
@@ -46,7 +46,6 @@ def get_clipboard_content():
         raise ValueError("Clipboard content is not a valid GitHub Actions run URL. "
                          "The URL should be in the format: 'https://github.com/<owner>/<repo>/actions/runs/<run_id>'")
 
-
 def extract_artifact(file_path, artifact_subfolder):
     """Extract a zip file to a directory within the artifact subfolder."""
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
@@ -55,6 +54,7 @@ def extract_artifact(file_path, artifact_subfolder):
 
 def download_and_extract_artifact(artifact, script_dir, headers):
     """Download and extract a single artifact."""
+    print(f'Downloading from {artifact["archive_download_url"]}')
     response = requests.get(artifact['archive_download_url'], headers=headers, stream=True)
     if response.status_code == 200:
         artifact_name = artifact['name']
@@ -65,9 +65,20 @@ def download_and_extract_artifact(artifact, script_dir, headers):
         filename = artifact_name + '.zip'
         filepath = os.path.join(artifact_subfolder, filename)
 
-        with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 1024  # 1 Kibibyte
+
+        with open(filepath, 'wb') as f, tqdm(
+            desc=filename,
+            total=total_size,
+            unit='iB',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as bar:
+            for chunk in response.iter_content(chunk_size=block_size):
                 f.write(chunk)
+                bar.update(len(chunk))
+
         print(f'Downloaded: {filepath}')
 
         extract_artifact(filepath, artifact_subfolder)
@@ -101,9 +112,8 @@ def main():
 
         # GitHub API URL for artifacts of a specific run
         api_url = f'https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/artifacts'
-        # ... [rest of the main function]
-        # if any error, print_help and exit
     except Exception as e:
+        print(f'Error: {e}')
         print_help()
         exit(1)
 
